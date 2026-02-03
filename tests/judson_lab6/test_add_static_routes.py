@@ -1,3 +1,4 @@
+import ipaddress
 import itertools
 import json
 import logging
@@ -141,10 +142,10 @@ class TestAddStaticRoutes:
 
     def _count_routes_in_asic(self, duthost) -> int:
         """
-        Count routes in ASIC_DB where the prefix starts with 10.7 through 10.99.
+        Count routes in ASIC_DB with prefix 10.64.0.0/10
         Returns the count of matching route entries.
         """
-        logger.info("Counting routes in ASIC_DB with prefix 10.7-10.99...")
+        logger.info("Counting routes in ASIC_DB with prefix 10.64.0.0/10...")
         
         # Initialize ASIC_DB connection
         asic_db = AsicDbCli(duthost)
@@ -160,18 +161,27 @@ class TestAddStaticRoutes:
             logger.info("No route entries found in ASIC_DB")
             return 0
         
-        # Count routes matching the prefix pattern 10.7-10.99
-        # Route keys contain JSON with "dest" field like "10.7.0.1/32"
+        # Count routes matching the network 10.64.0.0/10
+        # Route keys contain JSON with "dest" field like "10.64.0.1/32"
+        target_network = ipaddress.IPv4Network('10.64.0.0/10')
         matching_count = 0
-        # Pattern to match 10.7.x.x through 10.99.x.x
-        prefix_pattern = re.compile(r'"dest"\s*:\s*"10\.([7-9]|[1-9][0-9])\.\d+\.\d+')
         
         for key in route_keys:
-            # Check if the key contains a matching prefix
-            if prefix_pattern.search(key):
-                matching_count += 1
-        
-        logger.info(f"Found {matching_count} routes in ASIC_DB with prefix 10.7-10.99")
+            # Extract IP address from the route key using regex
+            # Key format: ASIC_STATE:SAI_OBJECT_TYPE_ROUTE_ENTRY:{"dest":"10.64.0.1/32","switch_id":...}
+            match = re.search(r'"dest"\s*:\s*"([0-9.]+)/(\d+)"', key)
+            if match:
+                try:
+                    ip_str = match.group(1)
+                    ip_addr = ipaddress.IPv4Address(ip_str)
+                    # Check if the IP is within our target network
+                    if ip_addr in target_network:
+                        matching_count += 1
+                except (ValueError, ipaddress.AddressValueError) as e:
+                    logger.warning(f"Could not parse IP address from key: {key}, error: {e}")
+                    continue
+
+        logger.info(f"Found {matching_count} routes in ASIC_DB with prefix 10.64.0.0/10")
         return matching_count
 
     def _assert_cpu_mem(self, duthost, cpu_cores_min: Optional[float] = None, 
@@ -307,12 +317,10 @@ class TestAddStaticRoutes:
 
         start_time = time.time()
         def gen_ips():
-            """Generate IPs in the range 10.7.1.1 to 10.99.254.254."""
-            for i in range(7, 100):  # 100 to include 10.99.x.x
-                for j in range(1, 255):
-                    for k in range(1, 255):
-                        yield f"10.{i}.{j}.{k}"
-            raise Exception("Not enough IPs")
+            """Generate IPs from 10.64.0.0/10 subnet (10.64.0.1 to 10.127.255.254)."""
+            network = ipaddress.IPv4Network('10.64.0.0/10')
+            for ip in network.hosts():
+                yield str(ip)
 
         ip_generator = gen_ips()
 
