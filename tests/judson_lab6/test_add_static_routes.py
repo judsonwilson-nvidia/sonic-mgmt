@@ -301,10 +301,12 @@ class TestAddStaticRoutes:
         
         logger.info(f"All thresholds satisfied")
 
-    def test_static_route_add(self, duthost) -> None:
+    def test_static_route_add(self, duthost, on_exit) -> None:
         """
         Test adding and removing 40k static routes.
         """
+        # Register cleanup callback - will run automatically after test completes.
+        on_exit.register(lambda: self._remove_all_routes(duthost, assert_cpu_mem=False))
 
         # Observed cores is around 1.5, and highly noisy.
         # TODO: More investigation is needed to understand the CPU usage here.
