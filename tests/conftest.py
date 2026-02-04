@@ -3152,6 +3152,33 @@ def on_exit():
     on_exit.cleanup()
 
 
+@pytest.fixture(scope="module")
+def dut_num_cores(duthost):
+    """
+    Get the number of CPU cores on the DUT.
+    
+    Module-scoped fixture that caches the CPU core count for all tests in the module.
+    
+    Returns:
+        int: Number of CPU cores
+    
+    Raises:
+        Exception: If unable to get or parse CPU core count
+    """
+    num_cores_output = duthost.shell("nproc", module_ignore_errors=True)
+    if num_cores_output['rc'] != 0:
+        raise Exception(f"Failed to get CPU core count: {num_cores_output.get('stderr', '')}")
+    try:
+        num_cores = int(num_cores_output['stdout'].strip())
+    except ValueError as e:
+        raise Exception(f"Could not parse nproc output: {num_cores_output['stdout']}, error: {e}")
+    if num_cores <= 0:
+        raise Exception(f"Invalid CPU core count: {num_cores}")
+    
+    logger.info(f"DUT has {num_cores} CPU cores")
+    return num_cores
+
+
 @pytest.fixture(scope="session", autouse=True)
 def add_mgmt_test_mark(duthosts):
     '''

@@ -23,10 +23,22 @@ N_ROUTES_DEL_BATCH = 500
 ROUTE_INSTALL_TIMEOUT = 1200  # seconds
 ROUTE_REMOVAL_TIMEOUT = 2000  # seconds
 
+
+@pytest.fixture(scope="class", autouse=True)
+def setup_test_class(request, dut_num_cores):
+    if request.cls is not None:
+        request.cls.num_cores = dut_num_cores
+        logger.info(f"Test class setup: DUT has {dut_num_cores} CPU cores")
+
+
 class TestAddStaticRoutes:
     def _remove_all_routes(self, duthost, assert_cpu_mem: bool = False) -> None:
         """
         Remove all static routes from the DUT using direct Redis operations.
+        
+        Args:
+            duthost: DUT host object
+            assert_cpu_mem: If True, assert CPU and memory usage during removal
         """
         num_routes = self._count_static_routes_in_summary(duthost)
         if num_routes == 0:
@@ -200,18 +212,6 @@ class TestAddStaticRoutes:
         """
         logger.info(f"Checking system CPU and memory usage...")
         
-        # Get number of CPU cores. Fail on any error or unexpected output.
-        num_cores_output = duthost.shell("nproc", module_ignore_errors=True)
-        if num_cores_output['rc'] != 0:
-            raise Exception(f"Failed to get CPU core count: {num_cores_output.get('stderr', '')}")
-        try:
-            num_cores = int(num_cores_output['stdout'].strip())
-        except ValueError as e:
-            raise Exception(f"Could not parse nproc output: {num_cores_output['stdout']}, error: {e}")
-        if num_cores <= 0:
-            raise Exception(f"Invalid CPU core count: {num_cores}")
-        logger.info(f"System has {num_cores} CPU cores")
-        
         # Convert memory threshold to percentage for comparison
         mem_max_pct = mem_max * 100 if mem_max is not None else None
         
@@ -243,7 +243,7 @@ class TestAddStaticRoutes:
                             idle_percent = float(idle_str)
                             cpu_usage_pct = round(100.0 - idle_percent, 1)
                             # Convert percentage to cores immediately
-                            cpu_usage_cores = round((cpu_usage_pct / 100) * num_cores, 2)
+                            cpu_usage_cores = round((cpu_usage_pct / 100) * self.num_cores, 2)
                             break
                         except (ValueError, IndexError) as e:
                             logger.warning(f"Could not parse CPU idle from: {line}, error: {e}")
@@ -265,7 +265,7 @@ class TestAddStaticRoutes:
         # Log summary
         summary_parts = []
         if cpu_usage_cores is not None:
-            summary_parts.append(f"CPU: {cpu_usage_cores:.2f} cores ({cpu_usage_pct}% of {num_cores} cores)")
+            summary_parts.append(f"CPU: {cpu_usage_cores:.2f} cores ({cpu_usage_pct}% of {self.num_cores} cores)")
         if mem_usage is not None:
             summary_parts.append(f"Memory: {mem_usage}%")
         
@@ -275,14 +275,14 @@ class TestAddStaticRoutes:
         failures = []
         
         if cpu_usage_cores is not None:
-            cpu_cores_min_pct = (cpu_cores_min / num_cores) * 100 if cpu_cores_min is not None else None
-            cpu_cores_max_pct = (cpu_cores_max / num_cores) * 100 if cpu_cores_max is not None else None
+            cpu_cores_min_pct = (cpu_cores_min / self.num_cores) * 100 if cpu_cores_min is not None else None
+            cpu_cores_max_pct = (cpu_cores_max / self.num_cores) * 100 if cpu_cores_max is not None else None
             
             if cpu_cores_min is not None and cpu_usage_cores < cpu_cores_min:
-                failures.append(f"CPU usage {cpu_usage_cores:.2f} cores ({cpu_usage_pct}% of {num_cores} cores) is below minimum threshold of {cpu_cores_min} cores ({cpu_cores_min_pct:.1f}%)")
+                failures.append(f"CPU usage {cpu_usage_cores:.2f} cores ({cpu_usage_pct}% of {self.num_cores} cores) is below minimum threshold of {cpu_cores_min} cores ({cpu_cores_min_pct:.1f}%)")
                 logger.error(failures[-1])
             if cpu_cores_max is not None and cpu_usage_cores > cpu_cores_max:
-                failures.append(f"CPU usage {cpu_usage_cores:.2f} cores ({cpu_usage_pct}% of {num_cores} cores) exceeds maximum threshold of {cpu_cores_max} cores ({cpu_cores_max_pct:.1f}%)")
+                failures.append(f"CPU usage {cpu_usage_cores:.2f} cores ({cpu_usage_pct}% of {self.num_cores} cores) exceeds maximum threshold of {cpu_cores_max} cores ({cpu_cores_max_pct:.1f}%)")
                 logger.error(failures[-1])
         else:
             logger.warning("Could not determine CPU usage from top output")
@@ -428,7 +428,7 @@ class TestAddStaticRoutes:
             f"Timeout: Expected {N_ROUTES} routes installed in ASIC_DB within {ROUTE_INSTALL_TIMEOUT} seconds. Took {total_install_time} seconds."
         )
 
-        # At this point, the heavily lifing of adding routes should be done (except maybe for the SDK to program the asic).
+        # At this point, the heavy lifing of adding routes should be done (except maybe for the SDK to program the asic).
         # CPU Usage should be lower. Observed cores is around 1.
         self._assert_cpu_mem(duthost, cpu_cores_max=3, mem_max=0.2)
 
